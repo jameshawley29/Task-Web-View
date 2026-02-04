@@ -1,19 +1,32 @@
 {
   "name": "task-web-view",
-  "version": "1.0.0",
-  "description": "A minimalistic web view for Notion tasks",
-  "main": "server/server.js",
+  "version": "2.0.0",
+  "private": true,
   "scripts": {
-    "start": "node server/server.js",
-    "dev": "node server/server.js"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
   },
-  "keywords": ["notion", "tasks", "minimalistic"],
-  "author": "",
-  "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.1",
     "@notionhq/client": "^2.2.14",
-    "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2"
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.460.0",
+    "next": "^16.1.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.13.3",
+    "tailwind-merge": "^2.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.6.3"
   }
 }
