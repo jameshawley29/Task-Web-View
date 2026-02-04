@@ -7,8 +7,12 @@ export async function GET() {
     const tasks = await getTasks()
     const insights = await getTaskInsights(tasks)
     return NextResponse.json(insights)
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error getting insights:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Unknown error occurred'
+    return NextResponse.json(
+      { error: message, details: 'Failed to generate insights' },
+      { status: 500 }
+    )
   }
 }

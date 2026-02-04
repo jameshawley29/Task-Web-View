@@ -1,13 +1,38 @@
 import { Client } from '@notionhq/client'
 import type { Task } from '@/types'
 
-const notion = new Client({
-  auth: process.env.NOTION_SECRET,
-})
+// Validate environment variables
+function getEnvVar(name: string): string {
+  const value = process.env[name]
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`)
+  }
+  return value
+}
 
-const databaseId = process.env.NOTION_DATABASE_ID!
+// Lazy initialization to allow proper env loading in Next.js
+let notionClient: Client | null = null
+let cachedDatabaseId: string | null = null
+
+function getNotionClient(): Client {
+  if (!notionClient) {
+    const secret = getEnvVar('NOTION_SECRET')
+    notionClient = new Client({ auth: secret })
+  }
+  return notionClient
+}
+
+function getDatabaseId(): string {
+  if (!cachedDatabaseId) {
+    cachedDatabaseId = getEnvVar('NOTION_DATABASE_ID')
+  }
+  return cachedDatabaseId
+}
 
 export async function getTasks(): Promise<Task[]> {
+  const notion = getNotionClient()
+  const databaseId = getDatabaseId()
+
   const response = await notion.databases.query({
     database_id: databaseId,
     sorts: [
@@ -85,6 +110,9 @@ export async function getTasks(): Promise<Task[]> {
 }
 
 export async function createTask(name: string, dueDate?: string, priority?: string) {
+  const notion = getNotionClient()
+  const databaseId = getDatabaseId()
+
   const dbInfo = await notion.databases.retrieve({ database_id: databaseId })
   const properties: Record<string, any> = {}
 
@@ -127,6 +155,9 @@ export async function createTask(name: string, dueDate?: string, priority?: stri
 }
 
 export async function updateTaskStatus(id: string, status: boolean) {
+  const notion = getNotionClient()
+  const databaseId = getDatabaseId()
+
   const dbInfo = await notion.databases.retrieve({ database_id: databaseId })
   const properties: Record<string, any> = {}
   const dbProps = dbInfo.properties as Record<string, any>
@@ -155,5 +186,9 @@ export async function updateTaskStatus(id: string, status: boolean) {
 }
 
 export async function deleteTask(id: string) {
+  const notion = getNotionClient()
   await notion.pages.update({ page_id: id, archived: true })
 }
+
+// Export for testing
+export { getNotionClient, getDatabaseId }

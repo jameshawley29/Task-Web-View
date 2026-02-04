@@ -5,9 +5,13 @@ export async function GET() {
   try {
     const tasks = await getTasks()
     return NextResponse.json(tasks)
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching tasks:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Unknown error occurred'
+    return NextResponse.json(
+      { error: message, details: 'Failed to fetch tasks from Notion' },
+      { status: 500 }
+    )
   }
 }
 
@@ -16,14 +20,21 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { name, dueDate, priority } = body
 
-    if (!name) {
-      return NextResponse.json({ error: 'Task name is required' }, { status: 400 })
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+      return NextResponse.json(
+        { error: 'Task name is required and must be a non-empty string' },
+        { status: 400 }
+      )
     }
 
-    const result = await createTask(name, dueDate, priority)
+    const result = await createTask(name.trim(), dueDate, priority)
     return NextResponse.json({ success: true, ...result })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating task:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Unknown error occurred'
+    return NextResponse.json(
+      { error: message, details: 'Failed to create task in Notion' },
+      { status: 500 }
+    )
   }
 }
