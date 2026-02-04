@@ -5,9 +5,45 @@ import type { Task } from '@/types'
 function getEnvVar(name: string): string {
   const value = process.env[name]
   if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`)
+    throw new Error(`Missing required environment variable: ${name}. Please check your .env file or Vercel environment settings.`)
   }
   return value
+}
+
+// Retry wrapper for transient network errors
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries = 3,
+  delayMs = 1000
+): Promise<T> {
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await operation()
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+
+      // Check if it's a retryable error (network issues)
+      const isRetryable =
+        lastError.message.includes('EAI_AGAIN') ||
+        lastError.message.includes('ENOTFOUND') ||
+        lastError.message.includes('ETIMEDOUT') ||
+        lastError.message.includes('ECONNRESET') ||
+        lastError.message.includes('fetch failed')
+
+      if (!isRetryable || attempt === maxRetries - 1) {
+        throw lastError
+      }
+
+      // Exponential backoff
+      const delay = delayMs * Math.pow(2, attempt)
+      console.log(`Notion API retry ${attempt + 1}/${maxRetries} after ${delay}ms...`)
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+
+  throw lastError || new Error('Operation failed after retries')
 }
 
 // Lazy initialization to allow proper env loading in Next.js
@@ -17,7 +53,10 @@ let cachedDatabaseId: string | null = null
 function getNotionClient(): Client {
   if (!notionClient) {
     const secret = getEnvVar('NOTION_SECRET')
-    notionClient = new Client({ auth: secret })
+    notionClient = new Client({
+      auth: secret,
+      timeoutMs: 30000, // 30 second timeout
+    })
   }
   return notionClient
 }
@@ -33,15 +72,17 @@ export async function getTasks(): Promise<Task[]> {
   const notion = getNotionClient()
   const databaseId = getDatabaseId()
 
-  const response = await notion.databases.query({
-    database_id: databaseId,
-    sorts: [
-      {
-        timestamp: 'created_time',
-        direction: 'descending',
-      },
-    ],
-  })
+  const response = await withRetry(() =>
+    notion.databases.query({
+      database_id: databaseId,
+      sorts: [
+        {
+          timestamp: 'created_time',
+          direction: 'descending',
+        },
+      ],
+    })
+  )
 
   return response.results.map((page: any) => {
     const properties = page.properties
@@ -113,7 +154,9 @@ export async function createTask(name: string, dueDate?: string, priority?: stri
   const notion = getNotionClient()
   const databaseId = getDatabaseId()
 
-  const dbInfo = await notion.databases.retrieve({ database_id: databaseId })
+  const dbInfo = await withRetry(() =>
+    notion.databases.retrieve({ database_id: databaseId })
+  )
   const properties: Record<string, any> = {}
 
   // Find title property
@@ -146,10 +189,12 @@ export async function createTask(name: string, dueDate?: string, priority?: stri
     properties.Priority = { select: { name: priority } }
   }
 
-  const response = await notion.pages.create({
-    parent: { database_id: databaseId },
-    properties,
-  })
+  const response = await withRetry(() =>
+    notion.pages.create({
+      parent: { database_id: databaseId },
+      properties,
+    })
+  )
 
   return { id: response.id, url: (response as any).url }
 }
@@ -158,7 +203,9 @@ export async function updateTaskStatus(id: string, status: boolean) {
   const notion = getNotionClient()
   const databaseId = getDatabaseId()
 
-  const dbInfo = await notion.databases.retrieve({ database_id: databaseId })
+  const dbInfo = await withRetry(() =>
+    notion.databases.retrieve({ database_id: databaseId })
+  )
   const properties: Record<string, any> = {}
   const dbProps = dbInfo.properties as Record<string, any>
 
@@ -182,12 +229,16 @@ export async function updateTaskStatus(id: string, status: boolean) {
     properties.Done = { checkbox: status }
   }
 
-  await notion.pages.update({ page_id: id, properties })
+  await withRetry(() =>
+    notion.pages.update({ page_id: id, properties })
+  )
 }
 
 export async function deleteTask(id: string) {
   const notion = getNotionClient()
-  await notion.pages.update({ page_id: id, archived: true })
+  await withRetry(() =>
+    notion.pages.update({ page_id: id, archived: true })
+  )
 }
 
 // Export for testing

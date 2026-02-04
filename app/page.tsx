@@ -6,13 +6,42 @@ import { AddTaskForm } from '@/components/add-task-form'
 import { TaskItem } from '@/components/task-item'
 import { TaskCharts } from '@/components/task-charts'
 import { InsightsPanel } from '@/components/insights-panel'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { CheckCircle2, Circle, AlertCircle, BarChart3, ListTodo, RefreshCw } from 'lucide-react'
 import type { Task, InsightResponse } from '@/types'
-import { cn } from '@/lib/utils'
 
 type ViewMode = 'tasks' | 'analytics'
+
+// Helper to fetch with retry logic for transient network errors
+async function fetchWithRetry(url: string, options?: RequestInit, retries = 3): Promise<Response> {
+  let lastError: Error | null = null
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url, options)
+      return res
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error('Network error')
+      // Wait before retry (exponential backoff)
+      if (i < retries - 1) {
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000))
+      }
+    }
+  }
+
+  throw lastError || new Error('Network error after retries')
+}
+
+// Helper to parse API errors
+async function parseApiError(res: Response): Promise<string> {
+  try {
+    const data = await res.json()
+    return data.error || data.message || `HTTP ${res.status}: ${res.statusText}`
+  } catch {
+    return `HTTP ${res.status}: ${res.statusText}`
+  }
+}
 
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([])
@@ -21,14 +50,28 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<ViewMode>('tasks')
 
   const fetchTasks = useCallback(async () => {
+    setLoading(true)
     try {
-      const res = await fetch('/api/tasks')
-      if (!res.ok) throw new Error('Failed to fetch tasks')
+      const res = await fetchWithRetry('/api/tasks')
+
+      if (!res.ok) {
+        const errorMsg = await parseApiError(res)
+        throw new Error(errorMsg)
+      }
+
       const data = await res.json()
+
+      // Validate response is an array
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid response: expected array of tasks')
+      }
+
       setTasks(data)
       setError(null)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Unknown error occurred'
+      setError(message)
+      console.error('Failed to fetch tasks:', e)
     } finally {
       setLoading(false)
     }
@@ -40,15 +83,21 @@ export default function Home() {
 
   const handleAddTask = async (name: string, dueDate?: string) => {
     try {
-      const res = await fetch('/api/tasks', {
+      const res = await fetchWithRetry('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, dueDate }),
       })
-      if (!res.ok) throw new Error('Failed to create task')
+
+      if (!res.ok) {
+        const errorMsg = await parseApiError(res)
+        throw new Error(errorMsg)
+      }
+
       fetchTasks()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to create task'
+      setError(message)
     }
   }
 
@@ -57,16 +106,21 @@ export default function Home() {
     setTasks(prev => prev.map(t => (t.id === id ? { ...t, status } : t)))
 
     try {
-      const res = await fetch(`/api/tasks/${id}`, {
+      const res = await fetchWithRetry(`/api/tasks/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       })
-      if (!res.ok) throw new Error('Failed to update task')
-    } catch (e: any) {
+
+      if (!res.ok) {
+        const errorMsg = await parseApiError(res)
+        throw new Error(errorMsg)
+      }
+    } catch (e) {
       // Revert on error
       setTasks(prev => prev.map(t => (t.id === id ? { ...t, status: !status } : t)))
-      setError(e.message)
+      const message = e instanceof Error ? e.message : 'Failed to update task'
+      setError(message)
     }
   }
 
@@ -75,18 +129,28 @@ export default function Home() {
     setTasks(prev => prev.filter(t => t.id !== id))
 
     try {
-      const res = await fetch(`/api/tasks/${id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Failed to delete task')
-    } catch (e: any) {
+      const res = await fetchWithRetry(`/api/tasks/${id}`, { method: 'DELETE' })
+
+      if (!res.ok) {
+        const errorMsg = await parseApiError(res)
+        throw new Error(errorMsg)
+      }
+    } catch (e) {
       // Revert on error
       if (task) setTasks(prev => [...prev, task])
-      setError(e.message)
+      const message = e instanceof Error ? e.message : 'Failed to delete task'
+      setError(message)
     }
   }
 
   const fetchInsights = async (): Promise<InsightResponse | null> => {
-    const res = await fetch('/api/insights')
-    if (!res.ok) throw new Error('Failed to fetch insights')
+    const res = await fetchWithRetry('/api/insights')
+
+    if (!res.ok) {
+      const errorMsg = await parseApiError(res)
+      throw new Error(errorMsg)
+    }
+
     return res.json()
   }
 
@@ -186,17 +250,21 @@ export default function Home() {
           {/* Error State */}
           {error && (
             <Card className="mb-6 border-destructive bg-destructive/10">
-              <CardContent className="flex items-center justify-between p-4">
-                <p className="text-sm text-destructive">{error}</p>
-                <Button variant="ghost" size="sm" onClick={fetchTasks}>
-                  <RefreshCw className="h-4 w-4" />
+              <CardContent className="flex items-center justify-between gap-4 p-4">
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-destructive">Error</p>
+                  <p className="text-sm text-destructive/80">{error}</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={fetchTasks}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Retry
                 </Button>
               </CardContent>
             </Card>
           )}
 
           {/* Loading State */}
-          {loading && (
+          {loading && !error && (
             <div className="flex flex-col items-center justify-center py-16">
               <RefreshCw className="mb-4 h-8 w-8 animate-spin text-primary" />
               <p className="text-muted-foreground">Loading tasks...</p>
@@ -204,7 +272,7 @@ export default function Home() {
           )}
 
           {/* Empty State */}
-          {!loading && tasks.length === 0 && (
+          {!loading && !error && tasks.length === 0 && (
             <Card className="py-16 text-center">
               <CardContent>
                 <CheckCircle2 className="mx-auto mb-4 h-12 w-12 text-muted-foreground/50" />
