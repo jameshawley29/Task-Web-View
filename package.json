@@ -1,0 +1,19 @@
+{
+  "name": "task-web-view",
+  "version": "1.0.0",
+  "description": "A minimalistic web view for Notion tasks",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node server/server.js"
+  },
+  "keywords": ["notion", "tasks", "minimalistic"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@notionhq/client": "^2.2.14",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  }
+}
